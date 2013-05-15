@@ -31,19 +31,20 @@ module CapistranoResque
               do ps -p $(cat $f) | sed -n 2p ; done \
            ;fi"
         end
-
-        def start_command(queue, pid)
-          "cd #{current_path} && RAILS_ENV=#{rails_env} QUEUE=\"#{queue}\" \
-           PIDFILE=#{pid} BACKGROUND=yes VERBOSE=1 INTERVAL=#{interval} \
-           #{fetch(:bundle_cmd, "bundle")} exec rake resque:work"
+        
+        def start_command(queue, number_of_workers)
+          "cd #{current_path} && RAILS_ENV=#{rails_env} QUEUE=#{queue} " <<
+          "COUNT=#{number_of_workers} BACKGROUND=yes VERBOSE=1 INTERVAL=#{interval} " <<
+          "#{fetch(:bundle_cmd, "bundle")} exec rake resque:workers "
         end
 
         def stop_command
-          "if [ -e #{current_path}/tmp/pids/resque_work_1.pid ]; then \
-           for f in `ls #{current_path}/tmp/pids/resque_work*.pid`; \
-             do #{try_sudo} kill -s #{resque_kill_signal} `cat $f` \
-             && rm $f ;done \
-           ;fi"
+          "if [ -e `ls #{current_path}/tmp/pids/resque_worker*.pid | head -1` ]; then " << 
+          " for f in `ls #{current_path}/tmp/pids/resque_worker*.pid`; " <<
+          "  do #{try_sudo} kill -s #{resque_kill_signal} `cat $f` 2> /dev/null " << 
+          "   ; rm $f 2> /dev/null; " << 
+          " done; " <<
+          " fi " 
         end
 
         def start_scheduler(pid)
@@ -57,6 +58,14 @@ module CapistranoResque
             #{try_sudo} kill $(cat #{pid}) ; rm #{pid} \
            ;fi"
         end
+        
+        def generate_pids
+          "cd #{current_path} && ps -e -o pid,command | \ 
+          grep [r]esque-[0-9] | \ 
+          sed 's/^\s*//g' | \
+          cut -d ' ' -f 1 | \
+          xargs -L1 -I PID sh -c 'echo PID > #{current_path}/tmp/pids/resque_worker_PID.pid' "
+        end
 
         namespace :resque do
           desc "See current worker status"
@@ -67,19 +76,15 @@ module CapistranoResque
           desc "Start Resque workers"
           task :start, :roles => lambda { workers_roles() }, :on_no_matching_servers => :continue do
             for_each_workers do |role, workers|
-              worker_id = 1
               workers.each_pair do |queue, number_of_workers|
                 logger.info "Starting #{number_of_workers} worker(s) with QUEUE: #{queue}"
-                threads = []
-                number_of_workers.times do
-                  pid = "./tmp/pids/resque_work_#{worker_id}.pid"
-                  threads << Thread.new(pid) { |pid| run(start_command(queue, pid), :roles => role) }
-                  worker_id += 1
-                end
-                threads.each(&:join)
+                queue_name = queue.gsub(/\s+/, "")
+                run(start_command(queue_name, number_of_workers), :roles => role)
               end
+              run(generate_pids, role: role)
             end
           end
+          
 
           # See https://github.com/defunkt/resque#signals for a descriptions of signals
           # QUIT - Wait for child to finish processing then exit (graceful)
