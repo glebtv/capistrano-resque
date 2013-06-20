@@ -34,8 +34,8 @@ module CapistranoResque
         
         def start_command(queue, number_of_workers)
           "cd #{current_path} && RAILS_ENV=#{rails_env} QUEUE=#{queue} " <<
-          "COUNT=#{number_of_workers} BACKGROUND=yes VERBOSE=1 INTERVAL=#{interval} " <<
-          "#{fetch(:bundle_cmd, "bundle")} exec rake resque:workers "
+          "COUNT=#{number_of_workers} BACKGROUND=yes INTERVAL=#{interval} " <<
+          "#{fetch(:bundle_cmd, "bundle")} exec rake resque:workers > /dev/null 2>&1"
         end
 
         def stop_command
@@ -48,23 +48,23 @@ module CapistranoResque
         end
 
         def start_scheduler(pid)
-          "cd #{current_path} && RAILS_ENV=#{rails_env} \
-           PIDFILE=#{pid} BACKGROUND=yes VERBOSE=1 MUTE=1 \
-           #{fetch(:bundle_cmd, "bundle")} exec rake resque:scheduler"
+          "cd #{current_path} && RAILS_ENV=#{rails_env} " << 
+          "PIDFILE=#{pid} BACKGROUND=yes VERBOSE=1 MUTE=1 " <<
+          "#{fetch(:bundle_cmd, "bundle")} exec rake resque:scheduler"
         end
 
         def stop_scheduler(pid)
-          "if [ -e #{pid} ]; then \
-            #{try_sudo} kill $(cat #{pid}) ; rm #{pid} \
-           ;fi"
+          "if [ -e #{pid} ]; then " <<
+          "#{try_sudo} kill $(cat #{pid}) ; rm #{pid} " <<
+          ";fi"
         end
         
-        def generate_pids
-          "cd #{current_path} && ps -e -o pid,command | \ 
-          grep [r]esque-[0-9] | \ 
-          sed 's/^\s*//g' | \
-          cut -d ' ' -f 1 | \
-          xargs -L1 -I PID sh -c 'echo PID > #{current_path}/tmp/pids/resque_worker_PID.pid' "
+        def generate_pids(queue_name = nil)
+          "cd #{current_path} && ps -e -o pid,command | " << 
+          "grep #{queue_name} | " << 
+          "sed 's/^\s*//g' | " <<
+          "cut -d ' ' -f 1 | " << 
+          "xargs -L1 -I PID sh -c 'echo PID > #{current_path}/tmp/pids/resque_worker_PID.pid' "
         end
 
         namespace :resque do
@@ -80,8 +80,8 @@ module CapistranoResque
                 logger.info "Starting #{number_of_workers} worker(s) with QUEUE: #{queue}"
                 queue_name = queue.gsub(/\s+/, "")
                 run(start_command(queue_name, number_of_workers), :roles => role)
+                run(generate_pids(queue_name), role: role)
               end
-              run(generate_pids, role: role)
             end
           end
           
