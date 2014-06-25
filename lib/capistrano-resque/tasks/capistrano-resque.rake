@@ -105,7 +105,9 @@ namespace :resque do
       on roles :resque_scheduler do
         pid = "#{current_path}/tmp/pids/scheduler.pid"
         within current_path do
-          execute :rake, %{RAILS_ENV=#{fetch(:rails_env)} PIDFILE=#{pid} BACKGROUND=yes VERBOSE=1 MUTE=1 resque:scheduler #{output_redirection}}
+          SSHKit.config.command_map.prefix[:rake].unshift(%{RAILS_ENV=#{fetch(:rails_env)} PIDFILE=#{pid} BACKGROUND=yes VERBOSE=1 MUTE=1})
+          execute :rake, %{#{"environment" if fetch(:resque_environment_task)} resque:scheduler #{output_redirection}}
+          SSHKit.config.command_map.prefix[:rake].shift
         end
       end
     end
